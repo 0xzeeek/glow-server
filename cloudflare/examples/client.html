@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Glow Edge Broadcast - Test Client</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        input {
+            flex: 1;
+            padding: 10px 15px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            background: #6366f1;
+            color: white;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background: #5558e3;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 10px 15px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .status.connecting {
+            background: #fff3cd;
+            color: #856404;
+        }
+        .messages {
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            height: 400px;
+            overflow-y: auto;
+            padding: 15px;
+            background: #fafafa;
+        }
+        .message {
+            padding: 8px 12px;
+            margin-bottom: 8px;
+            border-radius: 4px;
+            background: white;
+            border-left: 3px solid #6366f1;
+            font-family: monospace;
+            font-size: 13px;
+            word-break: break-all;
+        }
+        .message.error {
+            border-color: #dc3545;
+            background: #fee;
+        }
+        .stats {
+            display: flex;
+            gap: 20px;
+            margin-top: 20px;
+            font-size: 14px;
+        }
+        .stat {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .stat-label {
+            color: #666;
+        }
+        .stat-value {
+            font-weight: 600;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Glow Edge Broadcast Test Client</h1>
+        
+        <div class="controls">
+            <input 
+                type="text" 
+                id="wsUrl" 
+                placeholder="wss://broadcast.your-domain.com/ws/So11111111111111111111111111111111111111112"
+                value="wss://broadcast.your-domain.com/ws/test-token"
+            >
+            <button id="connectBtn" onclick="toggleConnection()">Connect</button>
+        </div>
+        
+        <div id="status" class="status disconnected">
+            Disconnected
+        </div>
+        
+        <div class="messages" id="messages"></div>
+        
+        <div class="stats">
+            <div class="stat">
+                <span class="stat-label">Messages:</span>
+                <span class="stat-value" id="messageCount">0</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Last Price:</span>
+                <span class="stat-value" id="lastPrice">-</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Latency:</span>
+                <span class="stat-value" id="latency">-</span>
+            </div>
+            <div class="stat">
+                <span class="stat-label">Uptime:</span>
+                <span class="stat-value" id="uptime">-</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let messageCount = 0;
+        let connectTime = null;
+        let pingInterval = null;
+        let uptimeInterval = null;
+        let lastPingTime = null;
+
+        function toggleConnection() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                disconnect();
+            } else {
+                connect();
+            }
+        }
+
+        function connect() {
+            const url = document.getElementById('wsUrl').value;
+            if (!url) {
+                alert('Please enter a WebSocket URL');
+                return;
+            }
+
+            updateStatus('connecting', 'Connecting...');
+            document.getElementById('connectBtn').textContent = 'Connecting...';
+            document.getElementById('connectBtn').disabled = true;
+
+            try {
+                ws = new WebSocket(url);
+
+                ws.onopen = () => {
+                    updateStatus('connected', 'Connected');
+                    document.getElementById('connectBtn').textContent = 'Disconnect';
+                    document.getElementById('connectBtn').disabled = false;
+                    connectTime = Date.now();
+                    
+                    addMessage('✅ Connected to edge broadcast', 'system');
+                    
+                    // Start ping interval
+                    pingInterval = setInterval(sendPing, 30000);
+                    
+                    // Start uptime counter
+                    uptimeInterval = setInterval(updateUptime, 1000);
+                };
+
+                ws.onmessage = (event) => {
+                    messageCount++;
+                    document.getElementById('messageCount').textContent = messageCount;
+                    
+                    try {
+                        const data = JSON.parse(event.data);
+                        addMessage(JSON.stringify(data, null, 2));
+                        
+                        // Handle different message types
+                        switch (data.type) {
+                            case 'PRICE_UPDATE':
+                                document.getElementById('lastPrice').textContent = 
+                                    `$${data.price.toFixed(6)}`;
+                                break;
+                            case 'pong':
+                                if (lastPingTime) {
+                                    const latency = Date.now() - lastPingTime;
+                                    document.getElementById('latency').textContent = 
+                                        `${latency}ms`;
+                                    lastPingTime = null;
+                                }
+                                break;
+                        }
+                    } catch (err) {
+                        addMessage(event.data);
+                    }
+                };
+
+                ws.onerror = (error) => {
+                    addMessage(`❌ Error: ${error.message || 'Connection error'}`, 'error');
+                };
+
+                ws.onclose = (event) => {
+                    updateStatus('disconnected', `Disconnected (${event.code})`);
+                    document.getElementById('connectBtn').textContent = 'Connect';
+                    document.getElementById('connectBtn').disabled = false;
+                    clearInterval(pingInterval);
+                    clearInterval(uptimeInterval);
+                    addMessage(`⚠️ Connection closed: ${event.reason || 'Unknown reason'}`, 'system');
+                };
+
+            } catch (err) {
+                updateStatus('disconnected', 'Failed to connect');
+                document.getElementById('connectBtn').textContent = 'Connect';
+                document.getElementById('connectBtn').disabled = false;
+                addMessage(`❌ Connection failed: ${err.message}`, 'error');
+            }
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+                ws = null;
+            }
+        }
+
+        function sendPing() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                lastPingTime = Date.now();
+                ws.send(JSON.stringify({ type: 'ping' }));
+            }
+        }
+
+        function updateStatus(state, text) {
+            const statusEl = document.getElementById('status');
+            statusEl.className = `status ${state}`;
+            statusEl.textContent = text;
+        }
+
+        function addMessage(text, type = 'message') {
+            const messagesEl = document.getElementById('messages');
+            const messageEl = document.createElement('div');
+            messageEl.className = type === 'error' ? 'message error' : 'message';
+            messageEl.textContent = `[${new Date().toLocaleTimeString()}] ${text}`;
+            messagesEl.appendChild(messageEl);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        function updateUptime() {
+            if (connectTime) {
+                const seconds = Math.floor((Date.now() - connectTime) / 1000);
+                const minutes = Math.floor(seconds / 60);
+                const hours = Math.floor(minutes / 60);
+                
+                let uptime = '';
+                if (hours > 0) {
+                    uptime = `${hours}h ${minutes % 60}m`;
+                } else if (minutes > 0) {
+                    uptime = `${minutes}m ${seconds % 60}s`;
+                } else {
+                    uptime = `${seconds}s`;
+                }
+                
+                document.getElementById('uptime').textContent = uptime;
+            }
+        }
+
+        // Auto-connect if URL is provided
+        if (document.getElementById('wsUrl').value) {
+            // Give user time to see the UI
+            setTimeout(() => {
+                if (confirm('Connect to the default WebSocket URL?')) {
+                    connect();
+                }
+            }, 500);
+        }
+    </script>
+</body>
+</html> 
