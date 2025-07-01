@@ -1,4 +1,4 @@
-# Solana Trading Backend
+# GLOW SERVER
 
 A serverless AWS + Cloudflare Edge backend for a mobile-first meme-coin trading app on Solana.
 
